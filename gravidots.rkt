@@ -1,0 +1,186 @@
+#lang racket/gui
+
+(require plot
+         (planet williams/animated-canvas/animated-canvas))
+
+(define num-particles 50)
+(define max-start-size 500)
+(define num-stars 300)
+(define done #false)
+
+(define frame
+  (instantiate frame% ("Gravidots")))
+
+(define canvas
+  (instantiate animated-canvas%
+    (frame)
+    (style '(border))
+    (min-width 1500)
+    (min-height 750)))
+
+(send frame maximize #true)
+
+(define (make-star)
+    (list (random 2000) (random 1000))
+    )
+  (define stars (for/list ([x num-stars])
+                      (make-star)
+                      )
+    )
+
+(define (draw-dots dots canvas)
+  (define dc (send canvas get-dc))
+  (define width (send canvas get-width))
+  (define height (send canvas get-height))
+  (send dc set-pen (make-object color% 30 30 30 1) 1 'solid)
+  (send dc set-brush (make-object color% 30 30 30 1) 'solid)
+  (send dc draw-rectangle 0 0 width height)
+  (for ([s stars])
+    (send dc set-pen "white" 1 'solid)
+    (send dc set-brush "white" 'solid)
+    (send dc draw-ellipse (-(get-x s) 1.5) (- (get-y s) 1.5) 3 3)
+    )
+  (for ([d dots])
+    (send dc set-pen (get-color d) 1 'solid)
+    (send dc set-brush (get-color d) 'solid)
+    (define draw-size (sqrt (get-size d)))
+    (send dc draw-ellipse (- (get-x d) (/ draw-size 2.0)) (- (get-y d) (/ draw-size 2.0)) draw-size draw-size)
+    ;(send dc draw-ellipse (-(get-x d) 2.5) (- (get-y d) 2.5) 5 5)
+    )
+  (send canvas swap-bitmaps)
+  (yield)
+  )
+
+(define (update-velocities parts)
+  (when (equal? (length parts) 1) (set! done #true))
+  (define tmp-parts parts)
+  (define used (list))
+  (for ([p (length parts)])
+    (for ([p2 (length parts)])
+      (unless (or (equal? p p2) (member p used))
+        (define dist-squared (* 1.0 (+ (expt (- (get-x (list-ref tmp-parts p)) (get-x (list-ref tmp-parts p2))) 2) (expt (- (get-y (list-ref tmp-parts p)) (get-y (list-ref tmp-parts p2))) 2))))
+        (if (< dist-squared (* 6.2 (+ (sqrt(get-size (list-ref tmp-parts p))) (sqrt(get-size (list-ref tmp-parts p2))))));(expt (get-size (list-ref tmp-parts p)) 2))
+            ((lambda ()
+               (set! used (append used (list p2)))
+               (when (< (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2)))
+                 (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 0 (get-x (list-ref tmp-parts p2)))))
+                 (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 1 (get-y (list-ref tmp-parts p2)))))
+                 )
+               ;(printf "m: ~a and ~a    x-vel: ~a and ~a -->" (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2)) (get-x-vel (list-ref tmp-parts p)) (get-x-vel (list-ref tmp-parts p2)))
+               (define new-x-vel (/ (+ (* (get-x-vel (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p))) (* (get-x-vel (list-ref tmp-parts p2)) (get-size (list-ref tmp-parts p2)))) (+ (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2)))))
+               ;(printf "x-vel: ~a~n" new-x-vel)
+               (define new-y-vel (/ (+ (* (get-y-vel (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p))) (* (get-y-vel (list-ref tmp-parts p2)) (get-size (list-ref tmp-parts p2)))) (+ (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2)))))
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 4 new-x-vel)))
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 5 new-y-vel)))
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 3 (+ (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2))))))
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 2 (make-object color% (min 255 (inexact->exact(round(+ 20 (* (get-size (list-ref tmp-parts p))(/ 255.0 20000)))))) 0 (max 0 (inexact->exact(round(- 200 (* (get-size (list-ref tmp-parts p))(/ 255.0 20000)))))) 1.0))))
+               ))
+            ((lambda ()
+               (define vel-diff (* 0.1 (/ (/ (* (get-size (list-ref tmp-parts p)) (get-size (list-ref tmp-parts p2))) dist-squared) (get-size (list-ref tmp-parts p)))))
+               ;(printf "vel-diff ~a= ~a~n" p vel-diff)
+               (define x-vel-diff (* vel-diff (/ (- (get-x (list-ref tmp-parts p)) (get-x (list-ref tmp-parts p2))) (sqrt dist-squared))))
+               ;(printf "x-vel-diff ~a= ~a~n" p x-vel-diff)
+               (define y-vel-diff (* vel-diff (/ (- (get-y (list-ref tmp-parts p)) (get-y (list-ref tmp-parts p2))) (sqrt dist-squared))))
+               ;(printf "y-vel-diff ~a= ~a~n" p y-vel-diff)
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 4 (- (get-x-vel (list-ref tmp-parts p)) x-vel-diff))))
+               (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 5 (- (get-y-vel (list-ref tmp-parts p)) y-vel-diff))))
+               ))
+            )
+        )
+      )
+    )
+  (define del-tmp-parts tmp-parts)
+  (for ([x (sort used >)])
+    (set! del-tmp-parts (remove (list-ref tmp-parts x) tmp-parts))
+    )
+  (set! tmp-parts del-tmp-parts)
+  tmp-parts
+  )
+
+(define (update-locations parts)
+  (define tmp-parts parts)
+  (define width (send canvas get-width))
+  (define height (send canvas get-height))
+  (for ([p (length tmp-parts)])
+    (define new-x-loc (+ (get-x (list-ref tmp-parts p)) (get-x-vel (list-ref tmp-parts p))))
+    (define new-y-loc (+ (get-y (list-ref tmp-parts p)) (get-y-vel (list-ref tmp-parts p))))
+    (define bounce 0)
+    (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 0 (if (and (> new-x-loc 0) (< new-x-loc width))
+                                                                                 new-x-loc
+                                                                                 (if (<= new-x-loc 0)
+                                                                                     (begin
+                                                                                       (set! bounce 1)
+                                                                                       0.1
+                                                                                       )
+                                                                                     (begin
+                                                                                       (set! bounce 1)
+                                                                                       width
+                                                                                       ))))))
+    (when (equal? 1 bounce) (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 4 (* -1 (get-x-vel (list-ref tmp-parts p)))))))
+    (set! bounce 0)
+    (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 1 (if (and (> new-y-loc 0) (< new-y-loc height))
+                                                                                 new-y-loc
+                                                                                 (if (<= new-y-loc 0)
+                                                                                     (begin
+                                                                                       (set! bounce 1)
+                                                                                       0.1
+                                                                                       )
+                                                                                     (begin
+                                                                                       (set! bounce 1)
+                                                                                       height
+                                                                                       ))))))
+    (when (equal? 1 bounce) (set! tmp-parts (list-set tmp-parts p (list-set (list-ref tmp-parts p) 5 (* -1 (get-y-vel (list-ref tmp-parts p)))))))
+    )
+  tmp-parts
+  )
+
+(define (get-x dot)
+  (list-ref dot 0)
+  )
+
+(define (get-y dot)
+  (list-ref dot 1)
+  )
+
+(define (get-color dot)
+  (list-ref dot 2)
+  )
+
+(define (get-size dot)
+  (list-ref dot 3)
+  )
+
+(define (get-x-vel dot)
+  (list-ref dot 4)
+  )
+
+(define (get-y-vel dot)
+  (list-ref dot 5)
+  )
+
+(send frame show #t)
+(for ([x 10] #:break (send frame is-maximized?))
+  (sleep 0.1)
+  )
+(define screen-width (send canvas get-width))
+(define screen-height (send canvas get-height))
+
+(define (main)
+  (define (make-particle)
+    (list (+ 10 (random screen-width)) (+ 10 (random screen-height)) (make-object color% 20 0 200 1.0) (+ 1 (random max-start-size)) (/ (- (random 100) 50) 25.0) (/ (- (random 100) 50) 25.0))
+    )
+  (define particles (for/list ([x num-particles])
+                      (make-particle)
+                      )
+    )
+  (define (anim-loop)
+    (unless done 
+      (draw-dots particles canvas)
+      (set! particles (update-velocities particles))
+      (set! particles (update-locations particles))
+      (anim-loop))
+    )
+  (anim-loop)
+  )
+
+(main)
